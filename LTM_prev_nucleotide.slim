@@ -1,0 +1,125 @@
+initialize() {
+
+	initializeSLiMOptions(nucleotideBased=T);
+	liabilitySize = liaSize;
+	defineConstant('L', liabilitySize);
+	initializeAncestralNucleotides(paste0(rep("A", L))); // Ancestral allele start with protective 
+	
+	// set parameters
+	perSiteMutRate = mu;
+	perSiteRecRate = 20 * perSiteMutRate; // set the perSiteRecRate equal to 10 * 2 * perSiteMutRate 
+	popSize = p;
+	
+	rho = rho_input;
+	envSD = e;
+	fitnessCost = f;
+	
+	// transformed parameters
+	maxG = 2 * liabilitySize;
+	threshold = rho * maxG;
+	startingPoint = 0; 
+		
+	// define constants
+	defineConstant('MU',perSiteMutRate);
+	defineConstant('REC',perSiteRecRate);
+	defineConstant('N',popSize);
+	defineConstant('RHO',rho);
+	defineConstant('THR',threshold);
+	defineConstant('START',startingPoint);
+	defineConstant('FITCOST',fitnessCost);
+	defineConstant('ENV_SIGMA',envSD);
+	defineConstant('SAMPLE_INT', sampleInt);
+	defineConstant('CYCLE', cyc);
+	defineConstant('REP',rep);
+
+	// liability mutations
+	LiaMuts = initializeMutationTypeNuc("m1", 0.5, 'f', 0);
+	LiaMuts.convertToSubstitution=T;
+	
+	mutationMatrix = matrix(c(0,0, MU, 0, 0,0,0,0, MU,0,0,0, 0,0,0,0), nrow=4, ncol=4);
+	initializeGenomicElementType('g1', m1, 1.0, mutationMatrix);
+	
+	initializeGenomicElement(g1, 0, L-1);
+	// set recombinationrate  
+	initializeRecombinationRate(REC);
+}
+
+
+fitness(NULL){
+	return (1.0 - FITCOST * asFloat(individual.tagF > THR)) * relFitness;
+}
+
+
+1 {
+	sim.addSubpop('p1', N);
+	sim.setValue("cycles", 0);
+	sim.setValue("fixedPos", NULL);  // record position fixed for risk allele
+	sim.setValue("Nfixed", 0);   // record total number of fixed allele 
+}
+
+
+1:50000000 late() {
+	thisGen=sim.generation;
+	inds = sim.subpopulations.individuals;
+	muts=sim.mutations;
+	mutTypes=sim.mutationTypes;
+	
+	// count up substitutions
+	subs=sim.substitutions.nucleotide;
+	fixedGenLi = 2 * length(sim.getValue("fixedPos"));
+	if (length(subs)!= sim.getValue("Nfixed")){
+	   for (newsubs in c((sim.getValue("Nfixed") +1): length(subs))){
+	   	sim.setValue("Nfixed", sim.getValue("Nfixed") + 1);
+
+	   	// the new substitution was a plus fix
+	   	if (subs[newsubs-1] == "G"){
+	      	   plus_pos = sim.substitutions[newsubs-1].position;
+	      	   sim.setValue("fixedPos", c(sim.getValue("fixedPos"), plus_pos));
+	      	   fixedGenLi = fixedGenLi + 2 ;
+	   	   }
+
+	   	// the new substitution was a minus fix
+	   	if (subs[newsubs-1] == "A"){
+	      	   minus_pos = sim.substitutions[newsubs-1].position;
+	      	   if (length(sim.getValue("fixedPos")) !=0){
+	      	      if (sum(minus_pos == sim.getValue("fixedPos")) !=0){
+		      	 
+			 // When it is previously a fixed risk allel, fixed genetic liability -2  and take it out of the fixedPos list 
+		      	 fixedGenLi = fixedGenLi - 2;
+		    	 old_fixedPos = sim.getValue("fixedPos");
+		    	 new_fixedPos = old_fixedPos[which(old_fixedPos !=minus_pos)];
+		    	 sim.setValue("fixedPos", new_fixedPos);
+		      }
+	           }
+	        }
+	   }	
+	}
+
+	Ninds = length(inds);
+
+	// calculate the liability for the segregating sites 
+	segGenLi = rep(0, Ninds);
+	for (i in c(0:(Ninds-1))){
+		ind_mut = sim.subpopulations.individuals[i].genomes.mutations.nucleotide;
+		segGenLi[i] = sum(ind_mut =="G") - sum(ind_mut =="A");
+	}
+
+	// calculate components of genetic liability 
+	genLi=START+fixedGenLi+segGenLi;
+	inds.tagF = genLi + rnorm(N, 0.0, ENV_SIGMA);
+	
+	genVar=var(genLi);
+	phenVar=var(inds.tagF);
+	h2=genVar/phenVar;
+	prev=sum(inds.tagF>THR)/length(inds.tagF);
+
+	if (sim.generation > 10*N & sim.generation % SAMPLE_INT ==0 & sim.getValue("cycles") < CYCLE)
+	{
+	        writeFile(paste0("PopSize", N, "_LiaSize", L, "_rho", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".prev"), paste(prev, sep=","), append=T);
+	        writeFile(paste0("PopSize", N, "_LiaSize", L, "_rho", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".h2"), paste(h2, sep=","), append=T);
+	        writeFile(paste0("PopSize", N, "_LiaSize", L, "_rho", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".genVar"), paste(genVar, sep=","), append=T);
+	        sim.setValue("cycles", sim.getValue("cycles") +1);
+	}
+	else if (sim.getValue("cycles") >= CYCLE){sim.simulationFinished();}
+}
+
