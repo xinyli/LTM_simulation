@@ -10,7 +10,7 @@ fitCost = 0.5
 sampleInt = 50
 
 ## simulation variable 
-rep = list(np.arange(0,11))
+rep = list(np.arange(0,10))
 rhos = np.array(params_table["rho"])
 liaSizes = np.array((params_table["target.size"]).astype(int))
 N = np.array(params_table["Ne"].astype(int))
