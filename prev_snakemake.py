@@ -14,8 +14,8 @@ rep = list(np.arange(0,10))
 rhos = np.array(params_table["rho"])
 liaSizes = np.array((params_table["target.size"]).astype(int))
 N = np.array(params_table["Ne"].astype(int))
-#envSD = np.round(np.array(params_table["env.sd"]),3)
-envSD = np.repeat(0,len(N))
+envSD = np.round(np.array(params_table["env.sd"]),3)
+#envSD = np.repeat(0,len(N))
 
 rule all:
   input: 
