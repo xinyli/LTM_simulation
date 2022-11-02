@@ -19,7 +19,8 @@ envSD = np.round(np.array(params_table["env.sd"]),3)
 
 rule all:
   input: 
-    expand(expand("PopSize{N}_LiaSize{liaSizes}_rho{rhos}_envSD{envSD}_rep{{rep}}.prev",zip, N=N, liaSizes=liaSizes, rhos=rhos, envSD=envSD), rep=rep) 
+    expand(expand("PopSize{N}_LiaSize{liaSizes}_rho{rhos}_envSD{envSD}_rep{{rep}}.prev",zip, N=N, liaSizes=liaSizes, rhos=rhos, envSD=envSD), rep=rep),
+    expand("PopSize{N}_LiaSize{liaSizes}_rho{rhos}_envSD{envSD}_all.h2", zip, N=N, liaSizes=liaSizes, rhos=rhos, envSD=envSD)
     
 
 rule slim_simulate_withsegregating:
@@ -38,3 +39,15 @@ rule slim_simulate_withsegregating:
   shell:
     """set +u; slim  -d mu={params.mu} -d rho_input={wildcards.rhos} -d p={wildcards.N} -d liaSize={wildcards.liaSizes} -d f={params.fitCost}  -d e={wildcards.envSD} -d cyc={params.cyc} -d sampleInt={params.sampleInt} -d rep={wildcards.rep} {input.slim_script} > PopSize{wildcards.N}_LiaSize{wildcards.liaSizes}_rho{wildcards.rhos}_envSD{wildcards.envSD}_rep{wildcards.rep}.temp; set -u; 
     set +u; rm PopSize{wildcards.N}_LiaSize{wildcards.liaSizes}_rho{wildcards.rhos}_envSD{wildcards.envSD}_rep{wildcards.rep}.temp; set -u; """
+
+
+rule result_combined: 
+   input: 
+     h2=expand("PopSize{{N}}_LiaSize{{liaSizes}}_rho{{rhos}}_envSD{{envSD}}_rep{rep}.h2", rep=rep),
+     prev=expand("PopSize{{N}}_LiaSize{{liaSizes}}_rho{{rhos}}_envSD{{envSD}}_rep{rep}.prev", rep=rep)
+   output:
+     h2="PopSize{N}_LiaSize{liaSizes}_rho{rhos}_envSD{envSD}_all.h2",
+     prev="PopSize{N}_LiaSize{liaSizes}_rho{rhos}_envSD{envSD}_all.prev"
+   shell: 
+     """cat {input.h2} >> {output.h2}; cat {input.prev} >> {output.prev}""" 
+ 
