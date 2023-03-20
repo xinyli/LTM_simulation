@@ -3,40 +3,28 @@ initialize() {
 	initializeSLiMOptions(nucleotideBased=T);
 	liabilitySize = liaSize;
 	defineConstant('L', liabilitySize);
-   defineConstant('RHO',rho_input);
-
-	// transformed parameters
-        maxG = 2 * liabilitySize;
-        threshold = RHO * maxG;
-	defineConstant('THR',threshold);
-
-	defineConstant('THR_START', 2000); // you can change this, when THR smaller than this number, starting point is 0; otherwise, starting point is THR - 2000  
-	// if large effect, start at point 0, set all ancestral alleles to be protective 
-	if (THR <= THR_START) {
-	   startingPoint = 0;
-	   initializeAncestralNucleotides(paste0(rep("A", L))); // Ancestral allele start with protective 
-	}
-
-	// if not, start at threshold point - 2000, set corresponding number of alleles to be protective and liability increasing 
-	else {
-	   startingPoint = 0;  
-	   initial_sequence = randomNucleotides(L, c(L-asInteger(L*RHO)+ asInteger(THR_START/2), 0, asInteger(L*RHO)- asInteger(THR_START/2), 0));
-	   defineConstant('ANC', initial_sequence);
-	   initializeAncestralNucleotides(initial_sequence);
-	}	
+	initializeAncestralNucleotides(paste0(rep("A", L))); // Ancestral allele start with protective 
 	
 	// set parameters
 	perSiteMutRate = mu;
 	perSiteRecRate = 20 * perSiteMutRate; // set the perSiteRecRate equal to 10 * 2 * perSiteMutRate 
 	popSize = p;
 	
+	rho = rho_input;
 	envSD = e;
-	fitnessCost = f;	
+	fitnessCost = f;
+	
+	// transformed parameters
+	maxG = 2 * liabilitySize;
+	threshold = rho * maxG;
+	startingPoint = 0; 
 		
 	// define constants
 	defineConstant('MU',perSiteMutRate);
 	defineConstant('REC',perSiteRecRate);
 	defineConstant('N',popSize);
+	defineConstant('RHO',rho);
+	defineConstant('THR',threshold);
 	defineConstant('START',startingPoint);
 	defineConstant('FITCOST',fitnessCost);
 	defineConstant('ENV_SIGMA',envSD);
@@ -48,7 +36,7 @@ initialize() {
 	LiaMuts = initializeMutationTypeNuc("m1", 0.5, 'f', 0);
 	LiaMuts.convertToSubstitution=T;
 	
-	mutationMatrix = matrix(c(0,0,MU,0, 0,0,0,0, MU,0,0,0, 0,0,0,0), nrow=4, ncol=4);
+	mutationMatrix = matrix(c(0,0, MU, 0, 0,0,0,0, MU,0,0,0, 0,0,0,0), nrow=4, ncol=4);
 	initializeGenomicElementType('g1', m1, 1.0, mutationMatrix);
 	
 	initializeGenomicElement(g1, 0, L-1);
@@ -65,23 +53,12 @@ fitness(NULL){
 1 {
 	sim.addSubpop('p1', N);
 	sim.setValue("cycles", 0);
-	if (THR <= THR_START) sim.setValue("fixedPos", NULL);  // record position fixed for risk allele
-        
-	// small effect size, count how many are fixed at risk allele   
-	else {
-             temp=c();
-             for (i in c(0: (nchar(ANC)-1))){
-                 if (substr(ANC, i,i)=="G") temp = c(temp, i);
-                 sim.setValue("fixedPos", temp);
-             }
-      	    // print(length(sim.getValue("fixedPos")));
-        }
-        sim.setValue("Nfixed", 0);   // record total number of fixed allele
-
+	sim.setValue("fixedPos", NULL);  // record position fixed for risk allele
+	sim.setValue("Nfixed", 0);   // record total number of fixed allele 
 }
 
 
-1:5000000 late() {
+1:50000000 late() {
 	thisGen=sim.generation;
 	inds = sim.subpopulations.individuals;
 	muts=sim.mutations;
@@ -137,11 +114,10 @@ fitness(NULL){
 	prev=sum(inds.tagF>THR)/length(inds.tagF);
 
 	if (sim.generation > 10*N & sim.generation % SAMPLE_INT ==0 & sim.getValue("cycles") < CYCLE)
-	{  
-	        //output files 
-	        writeFile(paste0("PopSize", N, "_LiaSize", L, "_rho", RHO, "_rep", REP, ".prev"), paste(prev, sep=","), append=T);
-	        writeFile(paste0("PopSize", N, "_LiaSize", L, "_rho", RHO, "_rep", REP, ".h2"), paste(h2, sep=","), append=T);
-	        writeFile(paste0("PopSize", N, "_LiaSize", L, "_rho", RHO, "_rep", REP, ".genVar"), paste(genVar, sep=","), append=T);
+	{
+	        writeFile(paste0("PopSize", N, "_LiaSize", L, "_rho", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".prev"), paste(prev, sep=","), append=T);
+	        writeFile(paste0("PopSize", N, "_LiaSize", L, "_rho", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".h2"), paste(h2, sep=","), append=T);
+	        writeFile(paste0("PopSize", N, "_LiaSize", L, "_rho", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".genVar"), paste(genVar, sep=","), append=T);
 	        sim.setValue("cycles", sim.getValue("cycles") +1);
 	}
 	else if (sim.getValue("cycles") >= CYCLE){sim.simulationFinished();}
