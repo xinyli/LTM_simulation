@@ -1,0 +1,147 @@
+initialize() {
+
+	initializeSLiMOptions(nucleotideBased=T);
+	defineConstant('Ls', asInteger(liaSmall));   // input liaSmall
+	defineConstant('Ll', asInteger(liaLarge));   // input liaLarge
+	defineConstant('betaS', aS);  //input aS
+        defineConstant('betaL', aL);  //input aL
+	defineConstant('rhoS', floor(rhos * 10000)/10000);
+
+	// A and C are protective states for small effect and large effect 
+	initializeAncestralNucleotides(randomNucleotides(Ls+Ll, c(Ls * (1-rhoS), Ll, Ls * rhoS, 0))); // Ancestral allele start with protective 
+	
+	// set parameters
+	perSiteMutRate = mu;  // input mu 
+	perSiteRecRate = 20 * perSiteMutRate; // set the perSiteRecRate equal to 10 * 2 * perSiteMutRate 
+	popSize = p;   // input p 
+	
+	rho = rhot;   //input rho total 
+	envSD = e;   // input e 
+	fitnessCost = f;    // input f
+ 	
+	L = Ls + Ll;
+        maxG = 2 * (Ls * betaS + Ll * betaL);
+        threshold = maxG * rhot;
+        startingPoint = Ls * rhoS * 2;
+
+	// define constants
+	defineConstant('MU',perSiteMutRate);
+	defineConstant('REC',perSiteRecRate);
+	defineConstant('N',popSize);
+	defineConstant('RHO',rho);
+	defineConstant('THR',threshold);
+	defineConstant('START',startingPoint);
+	defineConstant('FITCOST',fitnessCost);
+	defineConstant('ENV_SIGMA',envSD);
+	defineConstant('SAMPLE_INT', sampleInt);
+	defineConstant('CYCLE', cyc);
+	defineConstant('REP',rep);
+
+	// liability mutations
+	LiaMuts = initializeMutationTypeNuc("m1", 0.5, 'f', 0);
+	LiaMuts.convertToSubstitution=T;
+	
+	// G and T are risk states for small effect and large effect 
+	mutationMatrix = matrix(c(0,0, MU,0, 0,0,0,MU, MU,0,0,0, 0,MU,0,0), nrow=4, ncol=4);
+	initializeGenomicElementType('g1', m1, 1.0, mutationMatrix);
+	
+	initializeGenomicElement(g1, 0, L-1);
+	// set recombinationrate  
+	initializeRecombinationRate(REC);
+}
+
+
+fitness(NULL){
+	return (1.0 - FITCOST * asFloat(individual.tagF > THR)) * relFitness;
+}
+
+
+1 {
+	sim.addSubpop('p1', N);
+	sim.setValue("cycles", 0);
+	sim.setValue("LfixedPos", NULL);  // record position fixed for risk allele
+	sim.setValue("Nfixed", 0);   // record total number of fixed allele 
+}
+
+
+1:50000000 late() {
+	thisGen=sim.generation;
+	inds = sim.subpopulations.individuals;
+	muts=sim.mutations;
+	mutTypes=sim.mutationTypes;
+	
+	// count up substitutions
+	subs=sim.substitutions.nucleotide;
+	fixedSmallGenLi = 2 * betaS * (sum(subs=="G") - sum(subs=="A")); 
+	fixedLargeGenLi = 2 * betaL * length(sim.getValue("LfixedPos"));
+	fixedGenLi = fixedSmallGenLi + fixedLargeGenLi;
+
+	if (length(subs)!= sim.getValue("Nfixed")){
+	   for (newsubs in c((sim.getValue("Nfixed") +1): length(subs))){
+	   	sim.setValue("Nfixed", sim.getValue("Nfixed") + 1);
+
+	   	// the new substitution was a plus fix 
+	   	if ((subs[newsubs-1] == "T")){
+	      	   plus_pos = sim.substitutions[newsubs-1].position;
+	      	   sim.setValue("LfixedPos", c(sim.getValue("LfixedPos"), plus_pos));
+		   fixedLargeGenLi = fixedLargeGenLi  + 2 * betaL; 
+		   fixedGenLi = fixedGenLi + 2 * betaL;
+	   	   }
+
+	   	// the new substitution was a minus fix
+	   	if ((subs[newsubs-1] == "C")){
+	      	   minus_pos = sim.substitutions[newsubs-1].position;
+	      	   if (length(sim.getValue("LfixedPos")) !=0){
+	      	      if (sum(minus_pos == sim.getValue("LfixedPos")) !=0){
+		      	 
+			 // When it is previously a fixed risk allel, fixed genetic liability -2  and take it out of the fixedPos list
+			 fixedLargeGenLi = fixedLargeGenLi - 2*betaL; 
+			 fixedGenLi = fixedGenLi - 2 * betaL;
+		    	 old_fixedPos = sim.getValue("LfixedPos");
+		    	 new_fixedPos = old_fixedPos[which(old_fixedPos !=minus_pos)];
+		    	 sim.setValue("LfixedPos", new_fixedPos);
+		      }
+	           }
+	        }	       
+	   }	
+	}
+
+	Ninds = length(inds);
+
+	// calculate the liability for the segregating sites 
+	segGenLi = rep(0.0, Ninds);
+	largesegGenLi = rep(0.0, Ninds);
+	smallsegGenLi = rep(0.0, Ninds);
+	for (i in c(0:(Ninds-1))){
+		ind_mut = sim.subpopulations.individuals[i].genomes.mutations.nucleotide;
+		smallsegGenLi[i] = sum(ind_mut =="G") * betaS - sum(ind_mut =="A") * betaS;
+		largesegGenLi[i] = sum(ind_mut =="T") *betaL - sum(ind_mut =="C") * betaL;
+		segGenLi[i] = smallsegGenLi[i] + largesegGenLi[i]; 
+	}
+
+	// calculate components of genetic liability 
+	genLi=START+fixedGenLi+segGenLi;
+	inds.tagF = genLi + rnorm(N, 0.0, ENV_SIGMA);
+	
+	genVar=var(genLi);
+	phenVar=var(inds.tagF);
+	h2=genVar/phenVar;
+	genVarSmall = var(fixedSmallGenLi + smallsegGenLi);
+	h2s = genVarSmall/phenVar; 
+	genVarLarge = var(fixedLargeGenLi + largesegGenLi);
+	h2l = genVarLarge/ phenVar; 
+	prev=sum(inds.tagF>THR)/length(inds.tagF);
+	
+	if (sim.generation % 5000 ==0){print(sim.generation);}
+	if (sim.generation > 10*N & sim.generation % SAMPLE_INT ==0 & sim.getValue("cycles") < CYCLE)
+	{
+	        writeFile(paste0("PopSize", N, "_aL", betaL, "_rhot", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".prev"), paste(prev, sep=","), append=T);
+	        writeFile(paste0("PopSize", N, "_aL", betaL, "_rhot", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".h2"), paste(h2, sep=","), append=T);
+		writeFile(paste0("PopSize", N, "_aL", betaL, "_rhot", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".h2s"), paste(h2s, sep=","), append=T);
+		writeFile(paste0("PopSize", N, "_aL", betaL, "_rhot", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".h2l"), paste(h2l, sep=","), append=T);
+	        writeFile(paste0("PopSize", N, "_aL", betaL, "_rhot", RHO, "_envSD", ENV_SIGMA, "_rep", REP, ".genVar"), paste(genVar, sep=","), append=T);
+	        sim.setValue("cycles", sim.getValue("cycles") +1);
+	}
+	else if (sim.getValue("cycles") >= CYCLE){sim.simulationFinished();}
+}
+

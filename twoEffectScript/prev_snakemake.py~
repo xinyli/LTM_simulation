@@ -1,0 +1,67 @@
+import numpy as np 
+import pandas as pd
+
+def trim_trailingzero(x):
+    return(x.astype(str).strip("0").strip("."))
+
+params_table = pd.read_csv("params_test_twoeffect_Ls1e6_new.txt", delim_whitespace=True)
+#params_table = params_table.iloc[[0,49,99,149,199],:].reset_index(drop=True)
+
+## global parameter ( doesn't change) 
+cyc = 100
+sampleInt = 50
+reps = 50
+
+## simulation variable 
+rep = list(np.arange(0,reps))
+rhot = np.round(np.array(params_table["rhot"]),3)
+alphaLarge = np.round(np.array(params_table["al"]),3)
+alphaLarge = [trim_trailingzero(x) for x in alphaLarge]
+print(alphaLarge)
+
+N = np.array(params_table["Ne"].astype(int))
+envSD = np.round(np.sqrt(params_table["Ve"]),3)
+
+rule all:
+  input: 
+    expand(expand("PopSize{N}_aL{alphaLarge}_rhot{rhot}_envSD{envSD}_rep{{rep}}.prev",zip, N=N, alphaLarge = alphaLarge, rhot=rhot, envSD=envSD), rep=rep),
+    expand("PopSize{N}_aL{alphaLarge}_rhot{rhot}_envSD{envSD}_all.prev", zip, N=N, alphaLarge = alphaLarge, rhot=rhot, envSD=envSD)
+
+def find_index(wildcards, col):                                                                                                                                          
+    index = np.where( np.round(params_table["al"],3) == float(wildcards.alphaLarge))[0][0]             
+    return(params_table[col][index])
+
+rule slim_simulate_withsegregating:
+  input:
+    slim_script="LTM_prev_nucleotide_multieffect_diffstart.slim"
+  output:
+    "PopSize{N}_aL{alphaLarge}_rhot{rhot}_envSD{envSD}_rep{rep}.prev"
+  params:
+    mu = lambda wildcards: find_index(wildcards, col="u"),
+    fitCost= lambda wildcards: find_index(wildcards, col="C"),
+    alphaSmall = lambda wildcards: find_index(wildcards, col="as"),
+    liaSmall = lambda wildcards: find_index(wildcards, col="Ls"),
+    liaLarge = lambda wildcards: find_index(wildcards, col="Ll"),
+    rhos = lambda wildcards:find_index(wildcards, col="rhos"), 
+    cyc=cyc,
+    sampleInt = sampleInt,
+    time="80:00:00",
+    partition="jnovembre",
+    mem="5Gb"
+  shell:
+    """set +u; slim  -d mu={params.mu} -d rhot={wildcards.rhot} -d rhos={params.rhos} -d p={wildcards.N}  -d f={params.fitCost}  -d e={wildcards.envSD} -d cyc={params.cyc} -d sampleInt={params.sampleInt} -d rep={wildcards.rep} -d aS={params.alphaSmall} -d aL={wildcards.alphaLarge} -d liaSmall={params.liaSmall} -d liaLarge={params.liaLarge} {input.slim_script} > PopSize{wildcards.N}_aL{wildcards.alphaLarge}_rho{wildcards.rhot}_envSD{wildcards.envSD}_rep{wildcards.rep}.temp; set -u; 
+    set +u; rm PopSize{wildcards.N}_aL{wildcards.alphaLarge}_rho{wildcards.rhot}_envSD{wildcards.envSD}_rep{wildcards.rep}.temp; set -u; """
+
+
+rule result_combined: 
+   input: 
+     h2=expand("PopSize{{N}}_aL{{alphaLarge}}_rhot{{rhot}}_envSD{{envSD}}_rep{rep}.h2", rep=rep),
+     prev=expand("PopSize{{N}}_aL{{alphaLarge}}_rhot{{rhot}}_envSD{{envSD}}_rep{rep}.prev", rep=rep),
+     h2l=expand("PopSize{{N}}_aL{{alphaLarge}}_rhot{{rhot}}_envSD{{envSD}}_rep{rep}.h2l", rep=rep)
+   output:
+     h2="PopSize{N}_aL{alphaLarge}_rhot{rhot}_envSD{envSD}_all.h2",
+     prev="PopSize{N}_aL{alphaLarge}_rhot{rhot}_envSD{envSD}_all.prev",
+     h2l="PopSize{N}_aL{alphaLarge}_rhot{rhot}_envSD{envSD}_all.h2l"
+   shell: 
+     """cat {input.h2} >> {output.h2}; cat {input.prev} >> {output.prev}; cat {input.h2l} >> {output.h2l}""" 
+ 
